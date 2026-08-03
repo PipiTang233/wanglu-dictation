@@ -375,7 +375,11 @@ canvas{display:block;}
                 <button type="button" data-v="real">真人发音</button>
               </div>
             </div>
-            <div class="set-hint">真人发音仅覆盖单词，短语自动回退为合成语音；首次使用需联网获取，之后会缓存发音地址。合成语音完全离线可用，会自动优先选用英音；若听不到声音，请用 Chrome/Edge 打开或切到「真人发音」。</div>
+            <div class="set-row" style="justify-content:space-between;">
+              <button type="button" class="audio-btn" id="btn-voice-test" onclick="testVoice()" style="border-color:var(--border2);">🔊 测试语音</button>
+              <span id="voice-test-result" style="font-size:11px;color:var(--dim);"></span>
+            </div>
+            <div class="set-hint">合成语音：优先本地英音；浏览器没有可用语音时自动切到联网词典发音（有道/Google 英音，需要网络）。真人发音：仅覆盖单词，短语自动回退合成语音，首次使用需联网并缓存发音地址。听不到声音可点「测试语音」排查。</div>
           </div>
         </div>
         <div class="rail"><div class="rail-fill" id="d-rail"></div></div>
@@ -7049,12 +7053,14 @@ function voiceScore(v){
   const name=v.name||'';
   const lang=(v.lang||'').toLowerCase().replace('_','-');
   const online=/online|natural|neural|enhanced/i.test(name);
+  const remote=v.localService===false;
   let s=0;
   if(lang.indexOf('en-gb')===0)s+=100;
   else if(lang.indexOf('en-au')===0)s+=80;
   else if(lang.indexOf('en-us')===0)s+=60;
   else if(lang.indexOf('en')===0)s+=40;
-  if(!online)s+=20;
+  if(!online&&!remote)s+=60;
+  if(remote)s-=30;
   if(badVoices.has(name))s-=200;
   return s;
 }
@@ -7090,7 +7096,12 @@ function ttsPlay(text,rate){
     waitVoices(1200).then(()=>{
       const t=ttsText(text);
       const sp=rate||audioSettings.rate;
-      const candidates=[...voices].sort((a,b)=>voiceScore(b)-voiceScore(a));
+      // Chrome 等浏览器可能返回空语音列表，或只有 Google 联网语音（localService=false）
+      // 没有本地英文语音时 speechSynthesis 基本不可靠，直接交给词典音频兜底
+      if(!voices.length){res(false);return;}
+      const hasLocalEn=voices.some(v=>v.localService!==false&&/^en/i.test(v.lang||''));
+      if(!hasLocalEn){res(false);return;}
+      const candidates=[...voices].sort((a,b)=>voiceScore(b)-voiceScore(a)).slice(0,3);
       let resolved=false,started=false,silentTimer=null;
       const done=ok=>{if(resolved)return;resolved=true;if(silentTimer){clearTimeout(silentTimer);silentTimer=null;}res(ok);};
       const speakAt=idx=>{
@@ -7119,12 +7130,46 @@ function ttsPlay(text,rate){
   });
 }
 
+// 音频兜底：用在线词典 mp3 直接播放（不依赖 speechSynthesis），优先有道英音，失败再试 Google 英音
+function ttsAudio(text){
+  return new Promise(res=>{
+    const srcs=[
+      'https://dict.youdao.com/dictvoice?audio='+encodeURIComponent(text)+'&type=2',
+      'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en-gb&q='+encodeURIComponent(text),
+    ];
+    let i=0,done=false;
+    const finish=ok=>{if(done)return;done=true;res(ok);};
+    const tryNext=()=>{
+      if(i>=srcs.length){finish(false);return;}
+      const a=new Audio(srcs[i++]);
+      const to=setTimeout(()=>{a.pause();tryNext();},8000);
+      a.onended=()=>{clearTimeout(to);finish(true);};
+      a.onerror=()=>{clearTimeout(to);tryNext();};
+      a.play().catch(()=>{clearTimeout(to);tryNext();});
+    };
+    tryNext();
+  });
+}
+
+async function ttsChain(text,rate){
+  if(await ttsPlay(text,rate))return true;
+  return ttsAudio(text);
+}
+
+function testVoice(){
+  const out=document.getElementById('voice-test-result');
+  if(out)out.textContent='测试中…';
+  ttsChain('Testing one two three',audioSettings.rate).then(ok=>{
+    if(out)out.textContent=ok?'✓ 发音正常':'✗ 未听到声音：请检查浏览器或网络';
+  });
+}
+
 function showTtsHint(){
   if(ttsHintShown)return;
   ttsHintShown=true;
   const el=document.getElementById('d-footer-info');
   if(el&&el.textContent.indexOf('未听到声音')<0){
-    el.textContent+=' ⚠ 未听到声音：当前浏览器可能没有可用的英语语音，建议用 Chrome/Edge 打开，或在 ⚙设置切到「真人发音」';
+    el.textContent+=' ⚠ 未听到声音：当前浏览器可能没有可用的英语语音，建议在 ⚙设置点「测试语音」，或切到「真人发音」';
   }
 }
 
@@ -7148,7 +7193,7 @@ function playWordAudio(text,rate){
   return new Promise(res=>{
     const single=!/[\s]/.test(text)&&/^[A-Za-z'’-]+$/.test(text);
     const useReal=audioSettings.voice==='real'&&single;
-    const fallback=()=>ttsPlay(text,rate).then(res);
+    const fallback=()=>ttsChain(text,rate).then(res);
     const done=()=>res(true);
     if(!useReal){fallback();return;}
     if(audioUrls[text]){playAudioUrl(audioUrls[text],done,fallback);return;}
