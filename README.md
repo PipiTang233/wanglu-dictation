@@ -2,7 +2,9 @@
 
 一个为雅思听力备考设计的单词听写练习网页，基于王陆语料库（剑桥雅思真题词汇）。
 
-**在线使用** → [点击这里](https://pipitang233.github.io/wanglu-dictation/)
+**在线使用** → [点击这里](https://pipitang233.github.io/wanglu-dictation-app/)
+
+> 本项目 fork 自 [zyxlele/wanglu-dictation](https://github.com/zyxlele/wanglu-dictation)，在原版基础上新增内置发音模块与乱序测试。词汇数据版权归原作者（王陆老师/出版社）所有，工具仅限个人学习、非商用。
 
 ---
 
