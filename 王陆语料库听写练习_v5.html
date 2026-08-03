@@ -264,7 +264,7 @@ canvas{display:block;}
       <div class="home-wrap">
         <div class="home-hero">
           <h1>选择章节，开始听写</h1>
-          <p>32 个章节 · 5877 个单词 · 点击章节查看历史记录并开始听写</p>
+          <p>8 个章节 · 5873 个单词 · 点击章节查看历史记录并开始听写</p>
         </div>
         <div id="home-body"></div>
       </div>
@@ -4376,7 +4376,7 @@ const VOCAB = {
     {"w":"zoo","p":"zuː","m":"动物园"}
   ],
   "11.1": [
-    {"w":"综合测试","p":"","m":"准确率"},
+    
     {"w":"caravan","p":"ˈkærəvæn","m":"房车"},
     {"w":"navigation","p":"ˌnævɪˈɡeɪʃn̩","m":"导航"},
     {"w":"demonstration","p":"ˌdemənˈstreɪʃn̩","m":"演示"},
@@ -4745,7 +4745,7 @@ const VOCAB = {
     {"w":"road runner","p":"rəʊd ˈrʌnə","m":"跑步者"}
   ],
   "11.2": [
-    {"w":"综合测试","p":"","m":"准确率"},
+    
     {"w":"canoe","p":"kəˈnuː","m":"独木舟"},
     {"w":"labels","p":"ˈleɪbl̩z","m":"标签"},
     {"w":"luxury","p":"ˈlʌkʃəri","m":"奢华"},
@@ -5144,7 +5144,7 @@ const VOCAB = {
     {"w":"palm trees","p":"pɑːm triːz","m":"棕榈树"}
   ],
   "11.3": [
-    {"w":"综合测试","p":"","m":"准确率"},
+    
     {"w":"rangers","p":"ˈreɪndʒəz","m":"护林员"},
     {"w":"measurement","p":"ˈmeʒəmənt","m":"度量，测量"},
     {"w":"voluntary","p":"ˈvɒləntri","m":"志愿的"},
@@ -5496,7 +5496,7 @@ const VOCAB = {
     {"w":"conflicting opinions","p":"kənˈflɪktɪŋ əˈpɪnɪənz","m":"意见冲突"}
   ],
   "11.4": [
-    {"w":"综合测试","p":"","m":"准确率"},
+    
     {"w":"code","p":"kəʊd","m":"密码"},
     {"w":"maximum","p":"ˈmæksɪməm","m":"最大的，最多的"},
     {"w":"coconut","p":"ˈkəʊkənʌt","m":"椰子"},
@@ -7144,9 +7144,17 @@ function waitVoices(ms){
 const TTS_FIXES={
   'OHPEN':'open',                    // 原数据疑似笔误
   'give sb. A sack':'give sb. a sack',
+  '综合测试':'test',                  // 数据残留的测试词条，避免误读
 };
 function ttsText(w){
   let t=TTS_FIXES[w]||w;
+  t=t
+    .replace(/\(.*?\)/g,'')          // 去掉括号内容：RA(research assistant) -> RA
+    .replace(/=.*$/,'')              // 保留等号前拼写：archaeologist=archeologist -> archaeologist
+    .replace(/\bsth\./gi,'something')// sth. -> something
+    .replace(/\bsb\./gi,'somebody')  // sb. -> somebody
+    .replace(/,(\S)/g,', $1')        // 逗号后补空格：type,shape -> type, shape
+    .replace(/\./g,'');              // 清理剩余句点
   return t.replace(/\ba\b/gi,m=>m==='A'?'A':'uh');
 }
 
