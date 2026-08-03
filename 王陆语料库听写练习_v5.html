@@ -52,6 +52,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);overflow-x:h
 .badge.y{background:rgba(210,153,34,.15);color:var(--yellow);}
 .badge.r{background:rgba(248,81,73,.15);color:var(--rb);}
 .badge.n{background:var(--border);color:var(--dim);}
+.tag-sm{font-family:var(--mono);font-size:9px;color:var(--purple);
+  border:1px solid var(--border2);border-radius:8px;padding:0 5px;margin-left:6px;vertical-align:1px;}
 
 /* card mini chart */
 .card-chart{margin-top:10px;height:28px;}
@@ -309,7 +311,10 @@ canvas{display:block;}
             <span class="stats-title" id="st-title"></span>
             <div class="stats-subtitle" id="st-subtitle"></div>
           </div>
-          <button class="btn btn-primary" id="st-start-btn" style="flex-shrink:0;margin-top:2px;">开始听写 →</button>
+          <div style="display:flex;gap:8px;flex-shrink:0;margin-top:2px;">
+            <button class="btn btn-ghost" id="st-shuffle-btn" title="本章单词随机打乱顺序听写">乱序测试 →</button>
+            <button class="btn btn-primary" id="st-start-btn">开始听写 →</button>
+          </div>
         </div>
         <div class="stats-summary" id="st-summary"></div>
         <div class="chart-section">
@@ -6418,7 +6423,7 @@ function fmtDate(d){return d.toLocaleDateString('zh-CN',{month:'numeric',day:'nu
 function fmtDateFull(d){return d.toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric'});}
 
 // ── STATE ──
-let curChap=null,curWords=[],wbMode=false,wbSortBy='count';
+let curChap=null,curWords=[],wbMode=false,curShuffle=false,wbSortBy='count';
 
 // ── STORAGE ──
 function getHist(){return getLS('wl3_hist');}
@@ -6426,7 +6431,7 @@ function saveHist(h){setLS('wl3_hist',h);}
 function getWb(){return getLS('wl3_wb');}
 function saveWb(w){setLS('wl3_wb',w);}
 
-function recordResult(chap,pct,correct,total,wrongWords,allResults){
+function recordResult(chap,pct,correct,total,wrongWords,allResults,mode){
   const h=getHist();
   if(!h[chap])h[chap]=[];
   const n=h[chap].length+1;
@@ -6435,6 +6440,7 @@ function recordResult(chap,pct,correct,total,wrongWords,allResults){
     pct,
     correct,
     total,
+    mode: mode||'normal',
     date: new Date().toISOString(),
     wrong: wrongWords.map(w=>({w:w.w,p:w.p,m:w.m,typed:w.typed||''})),
     all: allResults.map(r=>({w:r.w,p:r.p,m:r.m,typed:r.typed||'',ok:r.ok}))
@@ -6575,6 +6581,7 @@ function openStats(chap){
   qs('#st-title').textContent=`章节 ${chap}`;
   qs('#st-subtitle').textContent=`共 ${VOCAB[chap].length} 个单词 · 已练 ${sessions.length} 次`;
   qs('#st-start-btn').onclick=()=>startDict(chap);
+  qs('#st-shuffle-btn').onclick=()=>startDict(chap,null,{shuffle:true});
 
   // summary boxes
   if(sessions.length===0){
@@ -6604,7 +6611,7 @@ function openStats(chap){
     const cls=s.pct>=80?'g':s.pct>=50?'y':'r';
     const hasDetail=s.all&&s.all.length>0;
     rows+=`<tr>
-      <td style="color:var(--purple)">第 ${s.n} 次</td>
+      <td style="color:var(--purple)">第 ${s.n} 次${s.mode==='shuffle'?'<span class="tag-sm">乱序</span>':''}</td>
       <td style="color:var(--dim)">${fmtDateFull(d)}</td>
       <td class="pct-cell ${cls}">${s.pct}%</td>
       <td style="color:var(--dim)">${s.correct??'—'} / ${s.total??VOCAB[chap].length}</td>
@@ -6696,23 +6703,24 @@ function var2hex(v){
 // ── DICTATION ──
 function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
-function startDict(chap,words){
+function startDict(chap,words,opts){
   stopBlock();
   curChap=chap;
-  wbMode=!!words;
+  curShuffle=!!(opts&&opts.shuffle);
+  wbMode=!!words&&!curShuffle;
   curWords=words?[...words]:[...VOCAB[chap]];
-  if(wbMode)curWords=shuffle(curWords);
+  if(wbMode||curShuffle)curWords=shuffle(curWords);
 
   // session number
   const sessions=chapSessions(chap||'__wb__');
   const sessionNum=sessions.length+1;
   const today=fmtDateFull(new Date());
 
-  qs('#d-chap').textContent=wbMode?'错词练习':`章节 ${chap}`;
-  qs('#d-meta').textContent=wbMode?today:`第 ${sessionNum} 次 · ${today}`;
-  qs('#d-footer-info').textContent=wbMode
-    ?'输入单词，按 Enter 跳下一格 · 按 F2 播放当前词'
-    :'输入单词，按 Enter 跳下一格 · 按 F2 播放当前词 · 开启「自动」后光标到空格自动发音';
+  qs('#d-chap').textContent=curShuffle?`章节 ${chap} · 乱序`:(wbMode?'错词练习':`章节 ${chap}`);
+  qs('#d-meta').textContent=wbMode?today:(curShuffle?`乱序测试 · 第 ${sessionNum} 次 · ${today}`:`第 ${sessionNum} 次 · ${today}`);
+  qs('#d-footer-info').textContent=curShuffle
+    ?'乱序听写 · 输入单词，按 Enter 跳下一格 · 按 F2 播放当前词'
+    :(wbMode?'输入单词，按 Enter 跳下一格 · 按 F2 播放当前词':'输入单词，按 Enter 跳下一格 · 按 F2 播放当前词 · 开启「自动」后光标到空格自动发音');
 
   buildRows();
   showScreen('dict');
@@ -6825,7 +6833,7 @@ function finishDict(){
     allResults.push({...w,typed:val,ok});
   });
   const pct=Math.round(correct/total*100);
-  if(!wbMode&&curChap)recordResult(curChap,pct,correct,total,wrongWords,allResults);
+  if(!wbMode&&curChap)recordResult(curChap,pct,correct,total,wrongWords,allResults,curShuffle?'shuffle':'normal');
   showResults(pct,correct,total,wrongWords);
 }
 
@@ -6838,7 +6846,7 @@ function showResults(pct,correct,total,wrongWords){
 
   qs('#r-meta').textContent=wbMode
     ?`错词练习 · ${today}`
-    :`章节 ${curChap} · 第 ${sessionNum} 次 · ${today}`;
+    :(curShuffle?`章节 ${curChap} · 乱序 · 第 ${sessionNum} 次 · ${today}`:`章节 ${curChap} · 第 ${sessionNum} 次 · ${today}`);
   qs('#r-pct').textContent=pct+'%';
   qs('#r-pct').className='res-pct '+cls;
   qs('#r-sub').textContent=`正确 ${correct} / ${total}`;
@@ -6846,7 +6854,12 @@ function showResults(pct,correct,total,wrongWords){
   let acts=`<button class="btn btn-ghost" onclick="toHome()">← 章节</button>`;
   if(!wbMode&&curChap)
     acts+=`<button class="btn btn-ghost" onclick="openStats('${curChap}')">📊 查看记录</button>`;
-  acts+=`<button class="btn btn-ghost" onclick="startDict('${curChap}')">重练</button>`;
+  if(wbMode)
+    acts+=`<button class="btn btn-ghost" onclick="practiceWb()">重练错词</button>`;
+  else if(curShuffle)
+    acts+=`<button class="btn btn-ghost" onclick="startDict('${curChap}',null,{shuffle:true})">重测（乱序）</button>`;
+  else
+    acts+=`<button class="btn btn-ghost" onclick="startDict('${curChap}')">重练</button>`;
   if(wrongWords.length)
     acts+=`<button class="btn btn-primary" onclick="startDict(null,[...lastWrong])">再练错词 (${wrongWords.length})</button>`;
   qs('#r-actions').innerHTML=acts;
@@ -6958,7 +6971,7 @@ function openSessionDetail(chap,n){
   modalSession=s; modalChap=chap; modalViewMode='wrong';
 
   const d=new Date(s.date);
-  qs('#modal-title').textContent=`章节 ${chap} · 第 ${s.n} 次听写`;
+  qs('#modal-title').textContent=`章节 ${chap} · 第 ${s.n} 次听写${s.mode==='shuffle'?'（乱序）':''}`;
   qs('#modal-meta').textContent=fmtDateFull(d);
 
   const cls=s.pct>=80?'g':s.pct>=50?'y':'r';
