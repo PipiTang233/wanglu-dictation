@@ -7047,17 +7047,29 @@ if('speechSynthesis'in window&&speechSynthesis.onvoiceschanged!==undefined){
 function pickVoice(){
   const prefer=['en-GB','en-AU','en-US','en'];
   for(const p of prefer){
-    const hit=voices.find(x=>x.lang&&x.lang.toLowerCase().replace('_','-').indexOf(p.toLowerCase())===0);
-    if(hit)return hit;
+    const hits=voices.filter(x=>x.lang&&x.lang.toLowerCase().replace('_','-').indexOf(p.toLowerCase())===0);
+    if(!hits.length)continue;
+    const good=hits.find(x=>/natural|online|neural|enhanced/i.test(x.name));
+    return good||hits[0];
   }
   return voices.find(x=>x.lang&&x.lang.toLowerCase().indexOf('en')===0)||voices[0]||null;
+}
+
+// 针对 TTS 常见误读的修正：把独立单词 "a" 读成字母音 "A"(/eɪ/) 的问题，改为读弱读 "uh"(/ə/)
+const TTS_FIXES={
+  'OHPEN':'open',                    // 原数据疑似笔误
+  'give sb. A sack':'give sb. a sack',
+};
+function ttsText(w){
+  let t=TTS_FIXES[w]||w;
+  return t.replace(/\ba\b/gi,m=>m==='A'?'A':'uh');
 }
 
 function ttsPlay(text,rate){
   return new Promise(res=>{
     if(!('speechSynthesis'in window)){res(false);return;}
     speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text);
+    const u=new SpeechSynthesisUtterance(ttsText(text));
     const v=pickVoice();
     if(v){u.voice=v;u.lang=v.lang;}else{u.lang='en-GB';}
     u.rate=rate||audioSettings.rate;
@@ -7067,8 +7079,11 @@ function ttsPlay(text,rate){
   });
 }
 
+let realOk=true;
 function fetchRealUrl(w){
-  return fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`)
+  const ctrl=('AbortController'in window)?new AbortController():null;
+  const timer=ctrl?setTimeout(()=>ctrl.abort(),3500):null;
+  return fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`,ctrl?{signal:ctrl.signal}:{})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(data=>{
       const ph=(data&&data[0]&&data[0].phonetics)||[];
@@ -7076,7 +7091,8 @@ function fetchRealUrl(w){
       const any=ph.find(x=>x.audio);
       return uk?uk.audio:(any?any.audio:null);
     })
-    .catch(()=>null);
+    .catch(()=>{realOk=false;return null;})
+    .finally(()=>{if(timer)clearTimeout(timer);});
 }
 
 function playWordAudio(text,rate){
@@ -7087,6 +7103,7 @@ function playWordAudio(text,rate){
     const done=()=>res(true);
     if(!useReal){fallback();return;}
     if(audioUrls[text]){playAudioUrl(audioUrls[text],done,fallback);return;}
+    if(!realOk){fallback();return;}
     fetchRealUrl(text).then(url=>{
       if(url){try{audioUrls[text]=url;setLS(AURL_KEY,audioUrls);}catch(e){}}
       url?playAudioUrl(url,done,fallback):fallback();
