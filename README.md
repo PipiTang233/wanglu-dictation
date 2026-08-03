@@ -6,6 +6,14 @@
 
 > 本项目 fork 自 [zyxlele/wanglu-dictation](https://github.com/zyxlele/wanglu-dictation)，在原版基础上新增内置发音模块与乱序测试。词汇数据版权归原作者（王陆老师/出版社）所有，工具仅限个人学习、非商用。
 
+[![在线使用](https://img.shields.io/badge/GitHub%20Pages-在线使用-2ea043)](https://pipitang233.github.io/wanglu-dictation-app/)
+[![版本](https://img.shields.io/badge/version-v1.2-4493f8)]()
+[![IELTS](https://img.shields.io/badge/IELTS-听力备考-bc8cff)]()
+[![语言](https://img.shields.io/badge/language-HTML%2FJS-d29922)]()
+
+![首页预览](screenshot.png)
+![听写界面预览](screenshot-dict.png)
+
 ---
 
 ## 功能
