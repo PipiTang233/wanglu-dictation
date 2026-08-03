@@ -375,7 +375,7 @@ canvas{display:block;}
                 <button type="button" data-v="real">真人发音</button>
               </div>
             </div>
-            <div class="set-hint">真人发音仅覆盖单词，短语自动回退为合成语音；首次使用需联网获取，之后会缓存发音地址。合成语音完全离线可用，会自动优先选用英音。</div>
+            <div class="set-hint">真人发音仅覆盖单词，短语自动回退为合成语音；首次使用需联网获取，之后会缓存发音地址。合成语音完全离线可用，会自动优先选用英音；若听不到声音，请用 Chrome/Edge 打开或切到「真人发音」。</div>
           </div>
         </div>
         <div class="rail"><div class="rail-fill" id="d-rail"></div></div>
@@ -7031,28 +7031,47 @@ const AUD_KEY='wl3_audio';
 const AURL_KEY='wl3_audio_urls';
 let audioSettings=Object.assign({auto:false,rate:1,rep:1,gap:2,voice:'tts'},getLS(AUD_KEY));
 let audioUrls=getLS(AURL_KEY);
-let voices=[];
+let voices=[],voicesLoaded=false,badVoices=new Set(),ttsHintShown=false;
 let blockTimer=null,blockRunning=false,speakingRow=-1,audioEl=null,speakSeq=0;
 
 function initVoices(){
   if(!('speechSynthesis'in window))return;
   const v=speechSynthesis.getVoices();
-  if(v.length)voices=v;
+  if(v.length){voices=v;voicesLoaded=true;}
 }
 initVoices();
 if('speechSynthesis'in window&&speechSynthesis.onvoiceschanged!==undefined){
   speechSynthesis.onvoiceschanged=initVoices;
 }
 
+// 语音评分：优先离线英音（Online/Natural/Neural 多为联网语音，本地/离线时可能静默失败）
+function voiceScore(v){
+  const name=v.name||'';
+  const lang=(v.lang||'').toLowerCase().replace('_','-');
+  const online=/online|natural|neural|enhanced/i.test(name);
+  let s=0;
+  if(lang.indexOf('en-gb')===0)s+=100;
+  else if(lang.indexOf('en-au')===0)s+=80;
+  else if(lang.indexOf('en-us')===0)s+=60;
+  else if(lang.indexOf('en')===0)s+=40;
+  if(!online)s+=20;
+  if(badVoices.has(name))s-=200;
+  return s;
+}
+
 function pickVoice(){
-  const prefer=['en-GB','en-AU','en-US','en'];
-  for(const p of prefer){
-    const hits=voices.filter(x=>x.lang&&x.lang.toLowerCase().replace('_','-').indexOf(p.toLowerCase())===0);
-    if(!hits.length)continue;
-    const good=hits.find(x=>/natural|online|neural|enhanced/i.test(x.name));
-    return good||hits[0];
-  }
-  return voices.find(x=>x.lang&&x.lang.toLowerCase().indexOf('en')===0)||voices[0]||null;
+  const sorted=[...voices].sort((a,b)=>voiceScore(b)-voiceScore(a));
+  return sorted[0]||null;
+}
+
+function waitVoices(ms){
+  return new Promise(r=>{
+    if(voicesLoaded||!('speechSynthesis'in window)){r();return;}
+    const t0=Date.now();
+    const iv=setInterval(()=>{
+      if(voicesLoaded||Date.now()-t0>ms){clearInterval(iv);r();}
+    },80);
+  });
 }
 
 // 针对 TTS 常见误读的修正：把独立单词 "a" 读成字母音 "A"(/eɪ/) 的问题，改为读弱读 "uh"(/ə/)
@@ -7068,15 +7087,45 @@ function ttsText(w){
 function ttsPlay(text,rate){
   return new Promise(res=>{
     if(!('speechSynthesis'in window)){res(false);return;}
-    speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(ttsText(text));
-    const v=pickVoice();
-    if(v){u.voice=v;u.lang=v.lang;}else{u.lang='en-GB';}
-    u.rate=rate||audioSettings.rate;
-    u.onend=()=>res(true);
-    u.onerror=()=>res(false);
-    speechSynthesis.speak(u);
+    waitVoices(1200).then(()=>{
+      const t=ttsText(text);
+      const sp=rate||audioSettings.rate;
+      const candidates=[...voices].sort((a,b)=>voiceScore(b)-voiceScore(a));
+      let resolved=false,started=false,silentTimer=null;
+      const done=ok=>{if(resolved)return;resolved=true;if(silentTimer){clearTimeout(silentTimer);silentTimer=null;}res(ok);};
+      const speakAt=idx=>{
+        // 跳过已确认失败的语音；idx 越界时尝试浏览器默认语音（v=null），仍失败则放弃
+        if(idx>candidates.length){done(false);return;}
+        while(idx<candidates.length&&badVoices.has(candidates[idx].name))idx++;
+        const v=idx<candidates.length?candidates[idx]:null;
+        started=false;
+        speechSynthesis.cancel();
+        const u=new SpeechSynthesisUtterance(t);
+        if(v){u.voice=v;u.lang=v.lang;}else{u.lang='en-GB';}
+        u.rate=sp;
+        started=false;
+        u.onstart=()=>{started=true;if(silentTimer){clearTimeout(silentTimer);silentTimer=null;}};
+        u.onend=()=>done(true);
+        u.onerror=()=>{if(!started){if(v)badVoices.add(v.name);speakAt(idx+1);}else{done(false);}};
+        speechSynthesis.speak(u);
+        // 静默失败检测：2.5s 未开始发声则换下一个语音
+        silentTimer=setTimeout(()=>{if(!started){if(v)badVoices.add(v.name);speakAt(idx+1);}},2500);
+      };
+      // Chrome 已知问题：cancel() 后立即 speak() 可能丢语音，稍等再播
+      setTimeout(()=>speakAt(0),60);
+      // 兜底：单次发音超过 20s（极慢语速的长短语）也按成功处理，避免连播卡住
+      setTimeout(()=>done(true),20000);
+    });
   });
+}
+
+function showTtsHint(){
+  if(ttsHintShown)return;
+  ttsHintShown=true;
+  const el=document.getElementById('d-footer-info');
+  if(el&&el.textContent.indexOf('未听到声音')<0){
+    el.textContent+=' ⚠ 未听到声音：当前浏览器可能没有可用的英语语音，建议用 Chrome/Edge 打开，或在 ⚙设置切到「真人发音」';
+  }
 }
 
 let realOk=true;
@@ -7172,7 +7221,8 @@ function speakRowWord(i,onDone){
   let n=0,rep=Math.max(1,Math.min(3,parseInt(audioSettings.rep,10)||1));
   const step=()=>{
     if(myId!==speakSeq){if(onDone)onDone();return;}
-    playWordAudio(w.w).then(()=>{
+    playWordAudio(w.w).then(ok=>{
+      if(!ok)showTtsHint();
       if(myId!==speakSeq){if(onDone)onDone();return;}
       n++;
       if(n<rep){
