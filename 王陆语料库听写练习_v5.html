@@ -104,6 +104,9 @@ canvas{display:block;}
   color:var(--dim);padding:3px 8px;border-radius:4px;font-family:var(--sans);transition:all .15s;}
 .audio-btn:hover{color:var(--text);background:var(--border);}
 .audio-btn.on{color:#fff;background:rgba(68,147,248,.16);border-color:var(--accent);}
+.audio-retry{margin-left:6px;padding:2px 7px;border:1px solid var(--border2);border-radius:4px;
+  background:var(--panel);color:var(--text);font:inherit;cursor:pointer;}
+.audio-retry:hover{border-color:var(--accent);color:var(--accent);}
 @media (max-width:820px){
   .ab-txt{display:none;}
 }
@@ -146,8 +149,9 @@ canvas{display:block;}
 .row-icon{font-size:13px;text-align:center;user-select:none;width:24px;}
 
 .dict-footer{border-top:1px solid var(--border);padding:12px 20px;
-  display:flex;gap:10px;align-items:center;background:var(--bg2);flex-shrink:0;}
-.dict-footer-info{font-size:12px;color:var(--dim);flex:1;}
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--bg2);flex-shrink:0;}
+.dict-footer-info{font-size:12px;color:var(--dim);flex:1;min-width:180px;}
+.align-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
 .btn{padding:8px 20px;border-radius:6px;border:none;font-family:var(--sans);
   font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;}
 .btn-primary{background:var(--accent);color:#000;}
@@ -155,6 +159,7 @@ canvas{display:block;}
 .btn-ghost{background:var(--panel);border:1px solid var(--border2);color:var(--text);}
 .btn-ghost:hover{border-color:var(--accent);color:var(--accent);}
 .btn-sm{padding:5px 12px;font-size:12px;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
 
 /* RESULTS */
 .res-wrap{max-width:700px;margin:0 auto;padding:32px 20px;}
@@ -387,20 +392,25 @@ canvas{display:block;}
               <span class="set-lbl">发音方式</span>
               <div class="seg" id="seg-voice">
                 <button type="button" data-v="tts" class="on">合成语音</button>
-                <button type="button" data-v="real">真人发音</button>
+                <button type="button" data-v="real">词典发音</button>
               </div>
             </div>
             <div class="set-row" style="justify-content:space-between;">
               <button type="button" class="audio-btn" id="btn-voice-test" onclick="testVoice()" style="border-color:var(--border2);">🔊 测试语音</button>
               <span id="voice-test-result" style="font-size:11px;color:var(--dim);"></span>
             </div>
-            <div class="set-hint">合成语音：优先本地英音；浏览器没有可用语音时自动切到联网词典发音（有道/Google 英音，需要网络）。真人发音：仅覆盖单词，短语自动回退合成语音，首次使用需联网并缓存发音地址。听不到声音可点「测试语音」排查。</div>
+            <div class="set-hint">合成语音：优先浏览器英语语音；不可用时依次尝试有道英音、美音、逐词播放和 Google（需要网络）。词典发音：仅覆盖单词，短语自动回退合成语音，首次使用需联网并缓存发音地址。听不到声音可点「测试语音」排查。</div>
           </div>
         </div>
         <div class="rail"><div class="rail-fill" id="d-rail"></div></div>
         <div class="dict-scroll" id="d-scroll"></div>
         <div class="dict-footer">
           <div class="dict-footer-info" id="d-footer-info">输入单词，按 Enter 跳下一格 · 跳过留空直接按 Enter</div>
+          <div class="align-actions" aria-label="手动对齐">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="insertAlignmentGap()" title="把当前行及后面的输入下移一格">插空</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="shiftInputsUp()" title="删除当前行输入并把后面的输入上移一格">上移</button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="undoAlignment()" id="btn-align-undo" title="撤销上一次对齐" disabled>撤销对齐</button>
+          </div>
           <button class="btn btn-ghost btn-sm" onclick="checkAll()" id="btn-check">批改</button>
           <button class="btn btn-primary btn-sm" onclick="finishDict()">完成 →</button>
         </div>
@@ -6437,7 +6447,7 @@ function fmtDate(d){return d.toLocaleDateString('zh-CN',{month:'numeric',day:'nu
 function fmtDateFull(d){return d.toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric'});}
 
 // ── STATE ──
-let curChap=null,curWords=[],wbMode=false,curShuffle=false,wbSortBy='count';
+let curChap=null,curWords=[],wbMode=false,curShuffle=false,wbSortBy='count',alignmentHistory=[],activeInputIndex=0;
 
 // ── STORAGE ──
 function getHist(){return getLS('wl3_hist');}
@@ -6719,6 +6729,8 @@ function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Mat
 
 function startDict(chap,words,opts){
   stopBlock();
+  alignmentHistory=[];
+  activeInputIndex=0;
   curChap=chap;
   curShuffle=!!(opts&&opts.shuffle);
   wbMode=!!words&&!curShuffle;
@@ -6764,6 +6776,7 @@ function buildRows(){
       if(e.key==='Enter'){e.preventDefault();advanceFrom(i);}
     });
     inp.addEventListener('focus',()=>{
+      activeInputIndex=i;
       document.querySelectorAll('.row').forEach(r=>r.classList.remove('active-row'));
       document.getElementById('row-'+i).classList.add('active-row');
       updateStrip(i);
@@ -6785,6 +6798,7 @@ function buildRows(){
     });
   });
   updateStrip(0);
+  updateAlignmentButtons();
 }
 
 function advanceFrom(i){
@@ -6803,6 +6817,84 @@ function updateStrip(idx){
   const filled=[...document.querySelectorAll('.row-input')].filter(i=>i.value.trim()).length;
   qs('#d-stat').textContent=`${filled} / ${curWords.length}`;
   qs('#d-rail').style.width=(filled/curWords.length*100)+'%';
+}
+
+function alignmentValues(){
+  return [...document.querySelectorAll('.row-input')].map(inp=>inp.value);
+}
+
+function updateAlignmentButtons(){
+  const undo=document.getElementById('btn-align-undo');
+  if(undo)undo.disabled=alignmentHistory.length===0;
+}
+
+function clearGradingState(){
+  document.querySelectorAll('.row-input').forEach(inp=>{inp.className='row-input';});
+  document.querySelectorAll('.row-answer').forEach(el=>{
+    el.textContent='';
+    el.className='row-answer';
+  });
+  document.querySelectorAll('.row-icon').forEach(el=>{el.textContent='';});
+}
+
+function applyAlignmentValues(values,focusIdx){
+  values.forEach((value,i)=>{
+    const inp=document.getElementById('inp-'+i);
+    if(inp)inp.value=value||'';
+  });
+  clearGradingState();
+  updateStrip(focusIdx);
+  qs('#d-footer-info').textContent='输入顺序已调整，请重新批改';
+  updateAlignmentButtons();
+  const focus=document.getElementById('inp-'+focusIdx);
+  if(focus){
+    focus.focus();
+    focus.setSelectionRange(focus.value.length,focus.value.length);
+    focus.scrollIntoView({block:'center',behavior:'smooth'});
+  }
+}
+
+function alignmentIndex(){
+  const active=document.activeElement;
+  if(active&&active.matches&&active.matches('.row-input')){
+    const idx=parseInt(active.dataset.idx,10);
+    if(Number.isFinite(idx))return idx;
+  }
+  return Math.max(0,Math.min(curWords.length-1,activeInputIndex));
+}
+
+function saveAlignmentSnapshot(){
+  alignmentHistory.push(alignmentValues());
+}
+
+function insertAlignmentGap(){
+  if(!curWords.length)return;
+  const idx=alignmentIndex();
+  const values=alignmentValues();
+  const next=[...values];
+  for(let i=next.length-1;i>idx;i--)next[i]=next[i-1];
+  next[idx]='';
+  if(next.every((value,i)=>value===values[i]))return;
+  saveAlignmentSnapshot();
+  applyAlignmentValues(next,idx);
+}
+
+function shiftInputsUp(){
+  if(!curWords.length)return;
+  const idx=alignmentIndex();
+  const values=alignmentValues();
+  const next=[...values];
+  for(let i=idx;i<next.length-1;i++)next[i]=next[i+1];
+  next[next.length-1]='';
+  if(next.every((value,i)=>value===values[i]))return;
+  saveAlignmentSnapshot();
+  applyAlignmentValues(next,idx);
+}
+
+function undoAlignment(){
+  const previous=alignmentHistory.pop();
+  if(!previous)return;
+  applyAlignmentValues(previous,alignmentIndex());
 }
 
 function checkAll(){
@@ -7095,8 +7187,51 @@ const AUD_KEY='wl3_audio';
 const AURL_KEY='wl3_audio_urls';
 let audioSettings=Object.assign({auto:false,rate:1,rep:1,gap:2,voice:'tts'},getLS(AUD_KEY));
 let audioUrls=getLS(AURL_KEY);
-let voices=[],voicesLoaded=false,badVoices=new Set(),ttsHintShown=false;
+let voices=[],voicesLoaded=false,badVoices=new Set();
 let blockTimer=null,blockRunning=false,speakingRow=-1,audioEl=null,speakSeq=0;
+let activeAudioCancel=null,activeSpeechCancel=null;
+let audioStatusTimer=null,audioStatusPrevious='',audioStatusText='',audioStatusSeq=0;
+
+function audioStatusIsCurrent(el){
+  return !!(el&&el.dataset.audioStatus==='1'&&el.firstChild&&el.firstChild.nodeValue===audioStatusText);
+}
+
+function clearAudioStatus(restore=true){
+  if(audioStatusTimer){clearTimeout(audioStatusTimer);audioStatusTimer=null;}
+  const el=document.getElementById('d-footer-info');
+  if(el&&audioStatusIsCurrent(el)&&restore)el.textContent=audioStatusPrevious;
+  if(el)delete el.dataset.audioStatus;
+  audioStatusText='';
+}
+
+function showAudioStatus(message,opts){
+  const el=document.getElementById('d-footer-info');
+  if(!el)return;
+  const options=opts||{};
+  if(!audioStatusIsCurrent(el))audioStatusPrevious=el.textContent;
+  if(audioStatusTimer){clearTimeout(audioStatusTimer);audioStatusTimer=null;}
+  audioStatusText=message;
+  el.dataset.audioStatus='1';
+  el.textContent=message;
+  if(options.retry){
+    const retry=document.createElement('button');
+    retry.type='button';
+    retry.className='audio-retry';
+    retry.textContent='重新播放';
+    retry.onclick=()=>{clearAudioStatus();(options.onRetry||playActiveWord)();};
+    el.appendChild(retry);
+  }
+  const id=++audioStatusSeq;
+  if(options.duration){
+    audioStatusTimer=setTimeout(()=>{
+      if(id===audioStatusSeq)clearAudioStatus();
+    },options.duration);
+  }
+}
+
+function playbackIsCurrent(playId){
+  return playId===undefined||playId===null||playId===speakSeq;
+}
 
 function initVoices(){
   if(!('speechSynthesis'in window))return;
@@ -7158,129 +7293,281 @@ function ttsText(w){
   return t.replace(/\ba\b/gi,m=>m==='A'?'A':'uh');
 }
 
-function ttsPlay(text,rate){
+function ttsPlay(text,rate,playId){
   return new Promise(res=>{
     if(!('speechSynthesis'in window)){res(false);return;}
     waitVoices(1200).then(()=>{
+      if(!playbackIsCurrent(playId)){res(null);return;}
       const t=ttsText(text);
       const sp=rate||audioSettings.rate;
-      // Chrome 等浏览器可能返回空语音列表，或只有 Google 联网语音（localService=false）
-      // 没有本地英文语音时 speechSynthesis 基本不可靠，直接交给词典音频兜底
-      if(!voices.length){res(false);return;}
-      const hasLocalEn=voices.some(v=>v.localService!==false&&/^en/i.test(v.lang||''));
-      if(!hasLocalEn){res(false);return;}
-      const candidates=[...voices].sort((a,b)=>voiceScore(b)-voiceScore(a)).slice(0,3);
-      let resolved=false,started=false,silentTimer=null;
-      const done=ok=>{if(resolved)return;resolved=true;if(silentTimer){clearTimeout(silentTimer);silentTimer=null;}res(ok);};
-      const speakAt=idx=>{
-        // 跳过已确认失败的语音；idx 越界时尝试浏览器默认语音（v=null），仍失败则放弃
-        if(idx>candidates.length){done(false);return;}
-        while(idx<candidates.length&&badVoices.has(candidates[idx].name))idx++;
-        const v=idx<candidates.length?candidates[idx]:null;
-        started=false;
-        speechSynthesis.cancel();
-        const u=new SpeechSynthesisUtterance(t);
-        if(v){u.voice=v;u.lang=v.lang;}else{u.lang='en-GB';}
-        u.rate=sp;
-        started=false;
-        u.onstart=()=>{started=true;if(silentTimer){clearTimeout(silentTimer);silentTimer=null;}};
-        u.onend=()=>done(true);
-        u.onerror=()=>{if(!started){if(v)badVoices.add(v.name);speakAt(idx+1);}else{done(false);}};
-        speechSynthesis.speak(u);
-        // 静默失败检测：2.5s 未开始发声则换下一个语音
-        silentTimer=setTimeout(()=>{if(!started){if(v)badVoices.add(v.name);speakAt(idx+1);}},2500);
+      const candidates=[...voices]
+        .filter(v=>/^en/i.test(v.lang||''))
+        .sort((a,b)=>voiceScore(b)-voiceScore(a))
+        .slice(0,4);
+      if(!candidates.length){res(false);return;}
+      // 没有本地英文语音（如 Chrome 只有 Google 联网语音）时，跳过耗时的逐语音尝试，直接交给在线音频
+      if(!candidates.some(v=>v.localService!==false)){
+        showAudioStatus('浏览器无可用本地英语语音，直接使用在线发音',{duration:2000});
+        res(false);return;
+      }
+      let resolved=false,attemptCleanup=()=>{};
+      const done=value=>{
+        if(resolved)return;
+        resolved=true;
+        attemptCleanup();
+        if(activeSpeechCancel===cancel)activeSpeechCancel=null;
+        res(value);
       };
-      // Chrome 已知问题：cancel() 后立即 speak() 可能丢语音，稍等再播
-      setTimeout(()=>speakAt(0),60);
-      // 兜底：单次发音超过 20s（极慢语速的长短语）也按成功处理，避免连播卡住
-      setTimeout(()=>done(true),20000);
+      const cancel=()=>done(null);
+      activeSpeechCancel=cancel;
+      const speakAt=idx=>{
+        if(resolved)return;
+        if(!playbackIsCurrent(playId)){done(null);return;}
+        while(idx<candidates.length&&badVoices.has(candidates[idx].name))idx++;
+        if(idx>=candidates.length){done(false);return;}
+        const v=candidates[idx];
+        let attemptDone=false,startTimer=null,endTimer=null;
+        const u=new SpeechSynthesisUtterance(t);
+        u.voice=v;
+        u.lang=v.lang;
+        u.rate=sp;
+        const clearAttempt=()=>{
+          if(startTimer)clearTimeout(startTimer);
+          if(endTimer)clearTimeout(endTimer);
+          u.onstart=u.onend=u.onerror=null;
+        };
+        attemptCleanup=clearAttempt;
+        const fail=()=>{
+          if(attemptDone||resolved)return;
+          attemptDone=true;
+          clearAttempt();
+          badVoices.add(v.name);
+          speechSynthesis.cancel();
+          setTimeout(()=>speakAt(idx+1),60);
+        };
+        u.onstart=()=>{
+          if(attemptDone||resolved)return;
+          if(startTimer){clearTimeout(startTimer);startTimer=null;}
+          showAudioStatus(v.localService===false?'🔊 浏览器联网合成语音':'🔊 本地合成语音',{duration:1800});
+          const estimated=Math.max(12000,Math.min(60000,(t.length*420/Math.max(.5,sp))+8000));
+          endTimer=setTimeout(fail,estimated);
+        };
+        u.onend=()=>{
+          if(attemptDone||resolved)return;
+          attemptDone=true;
+          clearAttempt();
+          done(true);
+        };
+        u.onerror=fail;
+        speechSynthesis.cancel();
+        setTimeout(()=>{
+          if(attemptDone||resolved)return;
+          try{speechSynthesis.speak(u);}catch(e){fail();}
+        },60);
+        startTimer=setTimeout(fail,3000);
+      };
+      speakAt(0);
     });
   });
 }
 
-// 音频兜底：用在线词典 mp3 直接播放（不依赖 speechSynthesis），优先有道英音，失败再试 Google 英音
-function ttsAudio(text){
+function playRemoteAudio(url,label,rate,playId){
   return new Promise(res=>{
-    const srcs=[
-      'https://dict.youdao.com/dictvoice?audio='+encodeURIComponent(text)+'&type=2',
-      'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en-gb&q='+encodeURIComponent(text),
-    ];
-    let i=0,done=false;
-    const finish=ok=>{if(done)return;done=true;res(ok);};
-    const tryNext=()=>{
-      if(i>=srcs.length){finish(false);return;}
-      const a=new Audio(srcs[i++]);
-      const to=setTimeout(()=>{a.pause();tryNext();},8000);
-      a.onended=()=>{clearTimeout(to);finish(true);};
-      a.onerror=()=>{clearTimeout(to);tryNext();};
-      a.play().catch(()=>{clearTimeout(to);tryNext();});
+    if(!playbackIsCurrent(playId)){res('cancelled');return;}
+    let settled=false,started=false,loadTimer=null,playTimer=null;
+    const a=new Audio();
+    const finish=reason=>{
+      if(settled)return;
+      settled=true;
+      if(loadTimer)clearTimeout(loadTimer);
+      if(playTimer)clearTimeout(playTimer);
+      a.onplaying=a.onloadedmetadata=a.onended=a.onerror=null;
+      if(reason!=='ended'){try{a.pause();}catch(e){}}
+      if(audioEl===a)audioEl=null;
+      if(activeAudioCancel===cancel)activeAudioCancel=null;
+      res(reason);
     };
-    tryNext();
+    const cancel=()=>finish('cancelled');
+    const resetPlayTimer=()=>{
+      if(playTimer)clearTimeout(playTimer);
+      const duration=Number.isFinite(a.duration)&&a.duration>0
+        ?a.duration/Math.max(.5,a.playbackRate||1)*1000+5000
+        :30000;
+      playTimer=setTimeout(()=>finish('timeout'),Math.max(12000,Math.min(60000,duration)));
+    };
+    activeAudioCancel=cancel;
+    audioEl=a;
+    a.preload='auto';
+    a.playbackRate=Math.max(.5,Math.min(2,rate||audioSettings.rate||1));
+    a.onplaying=()=>{
+      if(!playbackIsCurrent(playId)){finish('cancelled');return;}
+      started=true;
+      if(loadTimer){clearTimeout(loadTimer);loadTimer=null;}
+      showAudioStatus('🔊 '+label,{duration:1800});
+      resetPlayTimer();
+    };
+    a.onloadedmetadata=()=>{if(started)resetPlayTimer();};
+    a.onended=()=>finish('ended');
+    a.onerror=()=>finish('error');
+    showAudioStatus('正在连接'+label+'…',{duration:1800});
+    loadTimer=setTimeout(()=>finish('timeout'),8000);
+    try{
+      a.src=url;
+      const pending=a.play();
+      if(pending&&pending.catch){
+        pending.catch(err=>finish(err&&err.name==='NotAllowedError'?'blocked':'error'));
+      }
+    }catch(e){finish('error');}
   });
 }
 
-async function ttsChain(text,rate){
-  if(await ttsPlay(text,rate))return true;
-  return ttsAudio(text);
+function youdaoUrl(text,type){
+  return 'https://dict.youdao.com/dictvoice?audio='+encodeURIComponent(text)+'&type='+type;
+}
+
+function googleTtsUrl(text){
+  return 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en-gb&q='+encodeURIComponent(text);
+}
+
+function youdaoLabel(type,byToken){
+  return '有道'+(type===2?'英音':'美音')+(byToken?'（逐词）':'');
+}
+
+function ttsTokens(text){
+  return ttsText(text).match(/[A-Za-z]+(?:['’][A-Za-z]+)?/g)||[];
+}
+
+function showSourceFallback(label,result,nextLabel){
+  const reason=result==='timeout'?'连接超时':'不可用';
+  showAudioStatus(label+reason+'，正在尝试'+nextLabel,{duration:2400});
+}
+
+function waitPlaybackNotice(ms,playId){
+  return new Promise(resolve=>setTimeout(()=>resolve(playbackIsCurrent(playId)),ms));
+}
+
+async function ttsAudio(text,rate,playId,onRetry){
+  const cleaned=ttsText(text).trim();
+  const types=[2,1];
+  for(let i=0;i<types.length;i++){
+    const label=youdaoLabel(types[i],false);
+    const result=await playRemoteAudio(youdaoUrl(cleaned,types[i]),label,rate,playId);
+    if(result==='ended')return true;
+    if(result==='cancelled')return false;
+    showSourceFallback(label,result,i===0?youdaoLabel(types[1],false):'逐词播放');
+    if(!await waitPlaybackNotice(700,playId))return false;
+  }
+
+  const tokens=ttsTokens(cleaned);
+  if(tokens.length>1){
+    showAudioStatus('整句音频不可用，正在尝试逐词播放',{duration:2400});
+    if(!await waitPlaybackNotice(700,playId))return false;
+    let allPlayed=true;
+    for(const token of tokens){
+      let tokenPlayed=false;
+      for(const type of types){
+        const result=await playRemoteAudio(youdaoUrl(token,type),youdaoLabel(type,true),rate,playId);
+        if(result==='ended'){tokenPlayed=true;break;}
+        if(result==='cancelled')return false;
+      }
+      if(!tokenPlayed){allPlayed=false;break;}
+    }
+    if(allPlayed)return true;
+  }
+
+  const googleResult=await playRemoteAudio(googleTtsUrl(cleaned),'Google 合成语音',rate,playId);
+  if(googleResult==='ended')return true;
+  if(googleResult==='cancelled')return false;
+  const retry=onRetry||playActiveWord;
+  if(googleResult==='timeout'){
+    showAudioStatus('Google 发音连接超时，请检查网络或 VPN',{retry:true,onRetry:retry});
+  }else if(googleResult==='blocked'){
+    showAudioStatus('浏览器阻止了音频播放，请点击重新播放',{retry:true,onRetry:retry});
+  }else{
+    showAudioStatus('Google 发音连接失败，请检查网络或 VPN',{retry:true,onRetry:retry});
+  }
+  return false;
+}
+
+async function ttsChain(text,rate,playId,onRetry){
+  const localResult=await ttsPlay(text,rate,playId);
+  if(localResult===true)return true;
+  if(localResult===null||!playbackIsCurrent(playId))return false;
+  showAudioStatus('浏览器合成语音不可用，正在尝试在线语音',{duration:2400});
+  if(!await waitPlaybackNotice(700,playId))return false;
+  return ttsAudio(text,rate,playId,onRetry);
 }
 
 function testVoice(){
+  stopSpeech();
+  const myId=++speakSeq;
   const out=document.getElementById('voice-test-result');
   if(out)out.textContent='测试中…';
-  ttsChain('Testing one two three',audioSettings.rate).then(ok=>{
-    if(out)out.textContent=ok?'✓ 发音正常':'✗ 未听到声音：请检查浏览器或网络';
+  ttsChain('Testing one two three',audioSettings.rate,myId,testVoice).then(ok=>{
+    if(myId!==speakSeq)return;
+    if(out)out.textContent=ok?'✓ 发音正常':'✗ 发音失败，请查看底部提示';
   });
 }
 
 function showTtsHint(){
-  if(ttsHintShown)return;
-  ttsHintShown=true;
   const el=document.getElementById('d-footer-info');
-  if(el&&el.textContent.indexOf('未听到声音')<0){
-    el.textContent+=' ⚠ 未听到声音：当前浏览器可能没有可用的英语语音，建议在 ⚙设置点「测试语音」，或切到「真人发音」';
-  }
+  if(audioStatusIsCurrent(el))return;
+  showAudioStatus('未听到声音，请检查浏览器或网络',{retry:true,onRetry:playActiveWord});
 }
 
-let realOk=true;
+const realFailures=new Map();
 function fetchRealUrl(w){
   const ctrl=('AbortController'in window)?new AbortController():null;
-  const timer=ctrl?setTimeout(()=>ctrl.abort(),3500):null;
+  const timer=ctrl?setTimeout(()=>ctrl.abort(),5000):null;
   return fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`,ctrl?{signal:ctrl.signal}:{})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(data=>{
       const ph=(data&&data[0]&&data[0].phonetics)||[];
       const uk=ph.find(x=>x.audio&&/uk|_gb/i.test(x.audio));
       const any=ph.find(x=>x.audio);
-      return uk?uk.audio:(any?any.audio:null);
+      const url=uk?uk.audio:(any?any.audio:null);
+      if(!url)realFailures.set(w,Date.now());
+      return url;
     })
-    .catch(()=>{realOk=false;return null;})
+    .catch(()=>{realFailures.set(w,Date.now());return null;})
     .finally(()=>{if(timer)clearTimeout(timer);});
 }
 
-function playWordAudio(text,rate){
-  return new Promise(res=>{
-    const single=!/[\s]/.test(text)&&/^[A-Za-z'’-]+$/.test(text);
-    const useReal=audioSettings.voice==='real'&&single;
-    const fallback=()=>ttsChain(text,rate).then(res);
-    const done=()=>res(true);
-    if(!useReal){fallback();return;}
-    if(audioUrls[text]){playAudioUrl(audioUrls[text],done,fallback);return;}
-    if(!realOk){fallback();return;}
-    fetchRealUrl(text).then(url=>{
-      if(url){try{audioUrls[text]=url;setLS(AURL_KEY,audioUrls);}catch(e){}}
-      url?playAudioUrl(url,done,fallback):fallback();
-    });
-  });
-}
+async function playWordAudio(text,rate,playId){
+  const single=!/[\s]/.test(text)&&/^[A-Za-z'’-]+$/.test(text);
+  const useDictionary=audioSettings.voice==='real'&&single;
+  const fallback=()=>ttsChain(text,rate,playId,playActiveWord);
+  if(!useDictionary){
+    if(audioSettings.voice==='real'&&!single){
+      showAudioStatus('短语使用合成语音',{duration:1600});
+    }
+    return fallback();
+  }
 
-function playAudioUrl(url,onEnd,onFail){
-  try{
-    if(audioEl){audioEl.pause();audioEl=null;}
-    audioEl=new Audio(url);
-    audioEl.onended=()=>{audioEl=null;if(onEnd)onEnd();};
-    audioEl.onerror=()=>{audioEl=null;if(onFail)onFail();};
-    audioEl.play().catch(()=>{audioEl=null;if(onFail)onFail();});
-  }catch(e){if(onFail)onFail();}
+  let url=audioUrls[text]||null;
+  if(url){
+    const result=await playRemoteAudio(url,'词典发音',rate,playId);
+    if(result==='ended')return true;
+    if(result==='cancelled')return false;
+    delete audioUrls[text];
+    try{setLS(AURL_KEY,audioUrls);}catch(e){}
+  }
+
+  const failedAt=realFailures.get(text)||0;
+  if(!failedAt||Date.now()-failedAt>60000){
+    showAudioStatus('正在获取词典发音…',{duration:1800});
+    url=await fetchRealUrl(text);
+    if(!playbackIsCurrent(playId))return false;
+    if(url){
+      try{audioUrls[text]=url;setLS(AURL_KEY,audioUrls);}catch(e){}
+      const result=await playRemoteAudio(url,'词典发音',rate,playId);
+      if(result==='ended')return true;
+      if(result==='cancelled')return false;
+    }
+  }
+  showAudioStatus('词典发音不可用，正在尝试合成语音',{duration:2400});
+  if(!await waitPlaybackNotice(700,playId))return false;
+  return fallback();
 }
 
 function flashRow(i,on){
@@ -7291,8 +7578,11 @@ function flashRow(i,on){
 
 function stopSpeech(){
   speakSeq++;
+  if(activeSpeechCancel){const cancel=activeSpeechCancel;activeSpeechCancel=null;cancel();}
   if('speechSynthesis'in window)speechSynthesis.cancel();
-  if(audioEl){try{audioEl.pause();}catch(e){}audioEl=null;}
+  if(activeAudioCancel){const cancel=activeAudioCancel;activeAudioCancel=null;cancel();}
+  else if(audioEl){try{audioEl.pause();}catch(e){}audioEl=null;}
+  clearAudioStatus();
   if(speakingRow>=0){flashRow(speakingRow,false);speakingRow=-1;}
 }
 
@@ -7334,9 +7624,9 @@ function speakRowWord(i,onDone){
   let n=0,rep=Math.max(1,Math.min(3,parseInt(audioSettings.rep,10)||1));
   const step=()=>{
     if(myId!==speakSeq){if(onDone)onDone();return;}
-    playWordAudio(w.w).then(ok=>{
-      if(!ok)showTtsHint();
+    playWordAudio(w.w,audioSettings.rate,myId).then(ok=>{
       if(myId!==speakSeq){if(onDone)onDone();return;}
+      if(!ok)showTtsHint();
       n++;
       if(n<rep){
         setTimeout(step,400);
